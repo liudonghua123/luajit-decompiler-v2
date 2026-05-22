@@ -1,23 +1,25 @@
-#include "..\main.h"
+#include "../main.h"
 
 Lua::Lua(const Bytecode& bytecode, const Ast& ast, const std::string& filePath, const bool& forceOverwrite, const bool& minimizeDiffs, const bool& unrestrictedAscii)
 	: bytecode(bytecode), ast(ast), filePath(filePath), forceOverwrite(forceOverwrite), minimizeDiffs(minimizeDiffs), unrestrictedAscii(unrestrictedAscii) {}
 
 Lua::~Lua() {
-	close_file();
 }
 
 void Lua::operator()() {
-	print_progress_bar();
 	prototypeDataLeft = bytecode.prototypesTotalSize;
 	write_header();
-	if (ast.chunk->block.size()) write_block(*ast.chunk, ast.chunk->block);
-	prototypeDataLeft -= ast.chunk->prototype.prototypeSize;
-	print_progress_bar(bytecode.prototypesTotalSize - prototypeDataLeft, bytecode.prototypesTotalSize);
-	create_file();
+	if (ast.chunk && ast.chunk->block.size()) {
+		write_block(*ast.chunk, ast.chunk->block);
+	} else {
+		write("-- empty chunk");
+		write(NEW_LINE);
+	}
+	// Only access prototype after ensuring chunk exists
+	if (ast.chunk) {
+		prototypeDataLeft -= ast.chunk->prototype.prototypeSize;
+	}
 	write_file();
-	close_file();
-	erase_progress_bar();
 }
 
 void Lua::write_header() {
@@ -39,7 +41,7 @@ void Lua::write_block(const Ast::Function& function, const std::vector<Ast::Stat
 		return;
 	}
 
-	for (uint32_t i = 0; i < block.size(); i++) {
+	for (size_t i = 0; i < block.size(); i++) {
 		if (!previousLineIsEmpty) {
 			switch (block[i - 1]->type) {
 			case Ast::AST_STATEMENT_RETURN:
@@ -139,14 +141,14 @@ void Lua::write_block(const Ast::Function& function, const std::vector<Ast::Stat
 				isFunctionDefinition = true;
 
 				if (!block[i]->assignment.expressions.back()->function->assignmentSlotIsUpvalue) {
-					for (uint8_t j = block[i]->assignment.expressions.back()->function->upvalues.size(); j--;) {
+					for (size_t j = block[i]->assignment.expressions.back()->function->upvalues.size(); j--;) {
 						if ((*block[i]->assignment.expressions.back()->function->upvalues[j].slotScope)->name != (*block[i]->assignment.variables.back().slotScope)->name) continue;
 						isFunctionDefinition = false;
 						break;
 					}
 
 					if (isFunctionDefinition) {
-						for (uint32_t j = block[i]->assignment.expressions.back()->function->usedGlobals.size(); j--;) {
+						for (size_t j = block[i]->assignment.expressions.back()->function->usedGlobals.size(); j--;) {
 							if (*block[i]->assignment.expressions.back()->function->usedGlobals[j] != (*block[i]->assignment.variables.back().slotScope)->name) continue;
 							isFunctionDefinition = false;
 							break;
@@ -224,11 +226,11 @@ void Lua::write_block(const Ast::Function& function, const std::vector<Ast::Stat
 			}
 
 			write_indent();
-			write_assignment(block[i]->assignment.variables, block[i]->assignment.expressions, " = ", i);
+			write_assignment(block[i]->assignment.variables, block[i]->assignment.expressions, " = ", false);
 			break;
 		case Ast::AST_STATEMENT_FUNCTION_CALL:
 			write_indent();
-			write_function_call(*block[i]->assignment.expressions.back()->functionCall, i);
+			write_function_call(*block[i]->assignment.expressions.back()->functionCall, false);
 			break;
 		case Ast::AST_STATEMENT_IF:
 			write_indent();
@@ -314,7 +316,7 @@ void Lua::write_block(const Ast::Function& function, const std::vector<Ast::Stat
 			write("::", function.labels[block[i]->instruction.label].name, "::");
 			break;
 		default:
-			throw nullptr;
+			throw std::runtime_error("Unknown statement type: " + std::to_string(static_cast<int>(block[i]->type)));
 		}
 
 		write(NEW_LINE);
@@ -689,7 +691,7 @@ void Lua::write_variable(const Ast::Variable& variable, const bool& isLineStart)
 	switch (variable.type) {
 	case Ast::AST_VARIABLE_SLOT:
 	case Ast::AST_VARIABLE_UPVALUE:
-		if (!(*variable.slotScope)->name.size()) throw nullptr;
+		if (!(*variable.slotScope)->name.size()) throw std::runtime_error("Empty variable name");
 		write((*variable.slotScope)->name);
 		break;
 	case Ast::AST_VARIABLE_GLOBAL:
@@ -724,7 +726,7 @@ void Lua::write_function_call(const Ast::FunctionCall& functionCall, const bool&
 }
 
 void Lua::write_assignment(const std::vector<Ast::Variable>& variables, const std::vector<Ast::Expression*>& expressions, const std::string& separator, const bool& isLineStart) {
-	for (uint8_t i = 0; i < variables.size(); i++) {
+	for (size_t i = 0; i < variables.size(); i++) {
 		write_variable(variables[i], i ? false : isLineStart);
 		if (i != variables.size() - 1) write(", ");
 	}
@@ -732,7 +734,7 @@ void Lua::write_assignment(const std::vector<Ast::Variable>& variables, const st
 	if (!expressions.size()) return;
 	write(separator);
 
-	for (uint8_t i = 0; i < expressions.size(); i++) {
+	for (size_t i = 0; i < expressions.size(); i++) {
 		if (i != expressions.size() - 1) {
 			write_expression(*expressions[i], false);
 			write(", ");
@@ -763,7 +765,7 @@ void Lua::write_assignment(const std::vector<Ast::Variable>& variables, const st
 }
 
 void Lua::write_expression_list(const std::vector<Ast::Expression*>& expressions, const Ast::Expression* const& multres) {
-	for (uint8_t i = 0; i < expressions.size(); i++) {
+	for (size_t i = 0; i < expressions.size(); i++) {
 		if (i != expressions.size() - 1 || multres) {
 			write_expression(*expressions[i], false);
 			write(", ");
@@ -786,7 +788,7 @@ void Lua::write_expression_list(const std::vector<Ast::Expression*>& expressions
 void Lua::write_function_definition(const Ast::Function& function, const bool& isMethod) {
 	write("(");
 
-	for (uint8_t i = isMethod ? 1 : 0; i < function.parameterNames.size(); i++) {
+	for (size_t i = isMethod ? 1 : 0; i < function.parameterNames.size(); i++) {
 		write(function.parameterNames[i]);
 		if (i != function.parameterNames.size() - 1 || function.isVariadic) write(", ");
 	}
@@ -809,7 +811,6 @@ void Lua::write_function_definition(const Ast::Function& function, const bool& i
 	write_indent();
 	write("end");
 	prototypeDataLeft -= function.prototype.prototypeSize;
-	print_progress_bar(bytecode.prototypesTotalSize - prototypeDataLeft, bytecode.prototypesTotalSize);
 }
 
 void Lua::write_number(const double& number) {
@@ -851,8 +852,8 @@ void Lua::write_string(const std::string& string) {
 	uint32_t value;
 	uint8_t digit;
 
-	for (uint32_t i = 0; i < string.size(); i++) {
-		value = string[i];
+	for (size_t i = 0; i < string.size(); i++) {
+		value = static_cast<uint8_t>(string[i]);
 
 		if (unrestrictedAscii || !(value & 0x80)) {
 			if ((string[i] >= ' '
@@ -894,8 +895,7 @@ void Lua::write_string(const std::string& string) {
 			}
 		} else if ((value & 0xE0) == 0xC0) {
 			if (i + 1 < string.size()) {
-				value <<= 8;
-				value |= string[i + 1];
+				value = (value << 8) | static_cast<uint8_t>(string[i + 1]);
 
 				if ((value & 0xC0) == 0x80
 					&& value >= 0xC2A0
@@ -908,9 +908,7 @@ void Lua::write_string(const std::string& string) {
 			}
 		} else if ((value & 0xF0) == 0xE0) {
 			if (i + 2 < string.size()) {
-				value <<= 16;
-				value |= (uint16_t)string[i + 1] << 8;
-				value |= string[i + 2];
+				value = (value << 16) | (static_cast<uint16_t>(string[i + 1]) << 8) | static_cast<uint8_t>(string[i + 2]);
 
 				if ((value & 0xC0C0) == 0x8080
 					&& ((value >= 0xE0A080
@@ -926,10 +924,7 @@ void Lua::write_string(const std::string& string) {
 			}
 		} else if ((value & 0xF8) == 0xF0) {
 			if (i + 3 < string.size()) {
-				value <<= 24;
-				value |= (uint32_t)string[i + 1] << 16;
-				value |= (uint16_t)string[i + 2] << 8;
-				value |= string[i + 3];
+				value = (value << 24) | (static_cast<uint32_t>(string[i + 1]) << 16) | (static_cast<uint16_t>(string[i + 2]) << 8) | static_cast<uint8_t>(string[i + 3]);
 
 				if ((value & 0xC0C0C0) == 0x808080
 					&& value >= 0xF0908080
@@ -944,8 +939,8 @@ void Lua::write_string(const std::string& string) {
 			}
 		}
 
-		for (uint8_t j = 2; j--;) {
-			digit = (string[i] >> j * 4) & 0xF;
+		for (int j = 1; j >= 0; j--) {
+			digit = (static_cast<uint8_t>(string[i]) >> j * 4) & 0xF;
 			escapeSequence[3 - j] = digit >= 0xA ? 'A' + digit - 0xA : '0' + digit;
 		}
 
@@ -1001,31 +996,24 @@ void Lua::write_indent() {
 	return write(std::string(indentLevel, '\t'));
 }
 
-void Lua::create_file() {
-#ifndef _DEBUG
-	if (!forceOverwrite) {
-		file = CreateFileA(filePath.c_str(), GENERIC_READ, NULL, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-
-		if (file != INVALID_HANDLE_VALUE) {
-			close_file();
-			assert(MessageBoxA(NULL, ("The file " + filePath + " already exists.\n\nDo you want to overwrite it?").c_str(), PROGRAM_NAME, MB_ICONWARNING | MB_YESNO | MB_DEFBUTTON2) == IDYES,
-				"File already exists", filePath, DEBUG_INFO);
-		}
-	}
-#endif
-	file = CreateFileA(filePath.c_str(), GENERIC_WRITE, NULL, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, NULL);
-	assert(file != INVALID_HANDLE_VALUE, "Unable to create file", filePath, DEBUG_INFO);
-}
-
-void Lua::close_file() {
-	if (file == INVALID_HANDLE_VALUE) return;
-	CloseHandle(file);
-	file = INVALID_HANDLE_VALUE;
-}
-
 void Lua::write_file() {
-	DWORD charsWritten = 0;
-	assert(WriteFile(file, writeBuffer.data(), writeBuffer.size(), &charsWritten, NULL) && !(writeBuffer.size() - charsWritten), "Failed writing to file", filePath, DEBUG_INFO);
+	// Ensure the output directory exists
+	std::string dirPath = Platform::get_directory(filePath);
+	if (!dirPath.empty()) {
+		Platform::create_directory(dirPath);
+	}
+
+	// Use std::ofstream for more reliable file writing
+	std::ofstream outFile(filePath, std::ios::binary);
+	if (!outFile.is_open()) {
+		print("ERROR: Failed to open file for writing: " + filePath);
+		assert(false, "Unable to create file", filePath, DEBUG_INFO);
+	}
+
+	outFile.write(writeBuffer.data(), static_cast<std::streamsize>(writeBuffer.size()));
+	outFile.close();
+
+	assert(outFile.good() || outFile.eof(), "Failed writing to file", filePath, DEBUG_INFO);
 	writeBuffer.clear();
 	writeBuffer.shrink_to_fit();
 }

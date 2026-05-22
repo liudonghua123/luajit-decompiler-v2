@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+permissions:
+  contents: write
+  packages: write
+  actions: write
+  
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            artifact: luajit-decompiler-v2-linux
+            ext: ""
+          - os: windows-latest
+            artifact: luajit-decompiler-v2-windows.exe
+            ext: ".exe"
+          - os: macos-latest
+            artifact: luajit-decompiler-v2-macos
+            ext: ""
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure CMake
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Prepare binary
+        if: runner.os != 'Windows'
+        run: |
+          mkdir dist
+          mv build/bin/luajit-decompiler-v2 dist/${{ matrix.artifact }}
+
+      - name: Prepare binary
+        if: runner.os == 'Windows'
+        run: |
+          mkdir dist
+          mv build/bin/Release/luajit-decompiler-v2 dist/${{ matrix.artifact }}
+        shell: bash
+
+      - name: Release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: |
+            dist/*
+          tag_name: latest
+          name: latest
+          body: Built by CI run ${{ github.run_id }}
+          draft: false
+          prerelease: false
+

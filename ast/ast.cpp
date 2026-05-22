@@ -1,4 +1,4 @@
-#include "..\main.h"
+#include "../main.h"
 
 Ast::Ast(const Bytecode& bytecode, const bool& ignoreDebugInfo, const bool& minimizeDiffs) : bytecode(bytecode), ignoreDebugInfo(ignoreDebugInfo), minimizeDiffs(minimizeDiffs) {}
 
@@ -29,7 +29,6 @@ Ast::Expression*& Ast::new_expression(const AST_EXPRESSION& type) {
 }
 
 void Ast::operator()() {
-	print_progress_bar();
 	chunk = new_function(*bytecode.main, 0);
 	isFR2Enabled = bytecode.header.version == Bytecode::BC_VERSION_2 && (bytecode.header.flags & Bytecode::BC_F_FR2);
 	prototypeDataLeft = bytecode.prototypesTotalSize;
@@ -38,7 +37,6 @@ void Ast::operator()() {
 	functions.shrink_to_fit();
 	statements.shrink_to_fit();
 	expressions.shrink_to_fit();
-	erase_progress_bar();
 }
 
 void Ast::build_functions(Function& function, uint32_t& functionCounter) {
@@ -55,7 +53,6 @@ void Ast::build_functions(Function& function, uint32_t& functionCounter) {
 	clean_up(function);
 	function.block.shrink_to_fit();
 	prototypeDataLeft -= function.prototype.prototypeSize;
-	print_progress_bar(bytecode.prototypesTotalSize - prototypeDataLeft, bytecode.prototypesTotalSize);
 
 	for (uint32_t i = function.childFunctions.size(); i--;) {
 		build_functions(*function.childFunctions[i], functionCounter);
