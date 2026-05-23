@@ -118,7 +118,7 @@ struct ConditionBuilder {
 		case Bytecode::BC_OP_JMP:
 			return Node::UNCONDITIONAL_TRUE;
 		default:
-			throw nullptr;
+			std::abort();
 		}
 	}
 
@@ -360,7 +360,7 @@ struct ConditionBuilder {
 			return node->inverted ? build_binary(node->type, build_expression(node->leftNode), build_expression(node->rightNode))
 				: build_not(build_binary(node->type, build_expression(node->leftNode), build_expression(node->rightNode)));
 		default:
-			throw nullptr;
+			std::abort();
 		}
 	}
 
@@ -406,7 +406,7 @@ struct ConditionBuilder {
 			expression->binaryOperation->type = AST_BINARY_OR;
 			break;
 		default:
-			throw nullptr;
+			std::abort();
 		}
 
 		expression->binaryOperation->leftOperand = leftOperand;

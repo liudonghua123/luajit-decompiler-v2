@@ -316,7 +316,9 @@ void Lua::write_block(const Ast::Function& function, const std::vector<Ast::Stat
 			write("::", function.labels[block[i]->instruction.label].name, "::");
 			break;
 		default:
-			throw std::runtime_error("Unknown statement type: " + std::to_string(static_cast<int>(block[i]->type)));
+            assert(false, "Unknown statement type: " + std::to_string(static_cast<int>(block[i]->type)),
+                   filePath, DEBUG_INFO);
+            break;
 		}
 
 		write(NEW_LINE);
@@ -691,7 +693,7 @@ void Lua::write_variable(const Ast::Variable& variable, const bool& isLineStart)
 	switch (variable.type) {
 	case Ast::AST_VARIABLE_SLOT:
 	case Ast::AST_VARIABLE_UPVALUE:
-		if (!(*variable.slotScope)->name.size()) throw std::runtime_error("Empty variable name");
+		if (!(*variable.slotScope)->name.size()) assert(false, "Empty variable name", filePath, DEBUG_INFO);
 		write((*variable.slotScope)->name);
 		break;
 	case Ast::AST_VARIABLE_GLOBAL:
@@ -814,13 +816,11 @@ void Lua::write_function_definition(const Ast::Function& function, const bool& i
 }
 
 void Lua::write_number(const double& number) {
-	static const auto try_string_to_number = [](const std::string& string, const double& number)->bool {
-		try {
-			return std::stod(string) == number;
-		} catch (...) {
-			return false;
-		}
-	};
+	static const auto try_string_to_number = [](const std::string& text, const double& number) -> bool {
+        char* end = nullptr;
+        const double value = std::strtod(text.c_str(), &end);
+        return end != nullptr && *end == '\0' && value == number;
+    };
 
 	const uint64_t rawDouble = std::bit_cast<uint64_t>(number);
 
@@ -1003,17 +1003,18 @@ void Lua::write_file() {
 		Platform::create_directory(dirPath);
 	}
 
-	// Use std::ofstream for more reliable file writing
-	std::ofstream outFile(filePath, std::ios::binary);
-	if (!outFile.is_open()) {
+	FILE* outFile = Platform::open_file(filePath, "wb");
+	if (!outFile) {
 		print("ERROR: Failed to open file for writing: " + filePath);
 		assert(false, "Unable to create file", filePath, DEBUG_INFO);
 	}
 
-	outFile.write(writeBuffer.data(), static_cast<std::streamsize>(writeBuffer.size()));
-	outFile.close();
+	size_t written = fwrite(writeBuffer.data(), 1, writeBuffer.size(), outFile);
+	Platform::close_file(outFile);
 
-	assert(outFile.good() || outFile.eof(), "Failed writing to file", filePath, DEBUG_INFO);
+	if (written != writeBuffer.size()) {
+		assert(false, "Failed writing to file", filePath, DEBUG_INFO);
+	}
 	writeBuffer.clear();
 	writeBuffer.shrink_to_fit();
 }
