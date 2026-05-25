@@ -13,44 +13,74 @@ permissions:
   
 jobs:
   build:
-    name: Build (${{ matrix.os }})
+    name: Build (${{ matrix.os }}, ${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
         include:
           - os: ubuntu-latest
             artifact: luajit-decompiler-v2-linux
             ext: ""
+            target: native
           - os: windows-latest
             artifact: luajit-decompiler-v2-windows.exe
             ext: ".exe"
+            target: native
           - os: macos-latest
             artifact: luajit-decompiler-v2-macos
             ext: ""
+            target: native
+          - os: ubuntu-latest
+            artifact: luajit-decompiler-v2-wasi.wasm
+            ext: ".wasm"
+            target: wasi
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install WASI toolchain
+        if: matrix.target == 'wasi'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-20 lld-20 wasi-libc libc++-20-dev-wasm32 libc++abi-20-dev-wasm32 libclang-rt-20-dev-wasm32 || true
+          if ! command -v wasmtime >/dev/null 2>&1; then
+            curl -L https://github.com/bytecodealliance/wasmtime/releases/latest/download/wasmtime-x86_64-linux.tar.xz -o /tmp/wasmtime.tar.xz
+            mkdir -p /tmp/wasmtime
+            tar -xJf /tmp/wasmtime.tar.xz -C /tmp/wasmtime
+            sudo cp /tmp/wasmtime/*/wasmtime /usr/local/bin/
+          fi
+
       - name: Configure CMake
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+        run: |
+          if [ "${{ matrix.target }}" = "wasi" ]; then
+            cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_WASI=ON -DCMAKE_C_COMPILER=clang-20 -DCMAKE_CXX_COMPILER=clang++-20 -DCMAKE_SYSROOT=/usr -DCMAKE_C_FLAGS='--target=wasm32-wasi' -DCMAKE_CXX_FLAGS='--target=wasm32-wasi -stdlib=libc++ -fno-exceptions' -DCMAKE_EXE_LINKER_FLAGS='--target=wasm32-wasi'
+          else
+            cmake -B build -DCMAKE_BUILD_TYPE=Release
+          fi
 
       - name: Build
         run: cmake --build build --config Release --parallel
 
-      - name: Prepare binary
-        if: runner.os != 'Windows'
+      - name: Validate WASI runtime
+        if: matrix.target == 'wasi'
         run: |
-          mkdir dist
-          mv build/bin/luajit-decompiler-v2 dist/${{ matrix.artifact }}
+          wasmtime --version
+          WORKSPACE_DIR=$(pwd)
+          wasmtime --dir "$WORKSPACE_DIR::/mnt" build/bin/luajit-decompiler-v2 /mnt/tests/simple_test.luac -o /mnt
+          ls -l /mnt/simple_test.lua
 
       - name: Prepare binary
-        if: runner.os == 'Windows'
         run: |
           mkdir dist
-          mv build/bin/Release/luajit-decompiler-v2 dist/${{ matrix.artifact }}
+          if [ "${{ matrix.target }}" = "wasi" ]; then
+            mv build/bin/luajit-decompiler-v2 dist/${{ matrix.artifact }}
+          elif [ "${{ runner.os }}" = "Windows" ]; then
+            mv build/bin/Release/luajit-decompiler-v2 dist/${{ matrix.artifact }}
+          else
+            mv build/bin/luajit-decompiler-v2 dist/${{ matrix.artifact }}
+          fi
         shell: bash
 
       - name: Release

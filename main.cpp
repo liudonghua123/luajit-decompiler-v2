@@ -42,6 +42,38 @@ static std::string string_to_lowercase(const std::string& str) {
 static void find_files_recursively(Directory& directory) {
     std::string searchPath = arguments.inputPath + directory.path;
 
+#ifdef BUILD_WASI
+    DIR* dir = opendir(searchPath.c_str());
+    if (!dir) return;
+
+    struct dirent* entry;
+    while ((entry = readdir(dir)) != nullptr) {
+        std::string name = entry->d_name;
+        if (name == "." || name == "..") continue;
+
+        std::string fullPath = Platform::join_path(searchPath, name);
+        if (Platform::is_directory(fullPath)) {
+            std::string folderPath = directory.path;
+            if (!folderPath.empty() && folderPath.back() != '/') folderPath += '/';
+            folderPath += name;
+            for (size_t i = 0; i < folderPath.size(); i++) {
+                if (folderPath[i] == '\\') folderPath[i] = '/';
+            }
+            if (!folderPath.empty() && folderPath.back() != '/') folderPath += '/';
+
+            Directory subdir{ .path = folderPath };
+            find_files_recursively(subdir);
+            directory.folders.push_back(std::move(subdir));
+        } else {
+            std::string ext = string_to_lowercase(Platform::get_extension(name));
+            if (!arguments.extensionFilter.size() || arguments.extensionFilter == ext) {
+                directory.files.push_back(name);
+            }
+        }
+    }
+
+    closedir(dir);
+#else
     for (const auto& entry : fs::recursive_directory_iterator(searchPath)) {
         if (entry.is_directory()) {
             std::string relPath = fs::relative(entry.path(), searchPath).string();
@@ -72,6 +104,7 @@ static void find_files_recursively(Directory& directory) {
             }
         }
     }
+#endif
 }
 
 static bool decompile_files_recursively(const Directory& directory) {
@@ -83,6 +116,7 @@ static bool decompile_files_recursively(const Directory& directory) {
         outputFile = Platform::remove_extension(outputFile);
         outputFile += ".lua";
 
+#ifndef NO_EXCEPTIONS
         try {
             std::string inputFile = arguments.inputPath + directory.path + directory.files[i];
             std::string outputFileFull = fullOutputPath + outputFile;
@@ -125,6 +159,29 @@ static bool decompile_files_recursively(const Directory& directory) {
             print("File skipped.");
             filesSkipped++;
         }
+#else
+        {
+            std::string inputFile = arguments.inputPath + directory.path + directory.files[i];
+            std::string outputFileFull = fullOutputPath + outputFile;
+
+            erase_progress_bar();
+            print("--------------------");
+            print("Input file: " + inputFile);
+            print("Reading bytecode...");
+
+            Bytecode bytecode(inputFile);
+            bytecode();
+            print("Building ast...");
+            Ast ast(bytecode, arguments.ignoreDebugInfo, arguments.minimizeDiffs);
+            ast();
+            print("Writing lua source...");
+            Lua lua(bytecode, ast, outputFileFull, arguments.forceOverwrite,
+                    arguments.minimizeDiffs, arguments.unrestrictedAscii);
+            lua();
+            erase_progress_bar();
+            print("Output file: " + outputFileFull);
+        }
+#endif
     }
 
     for (size_t i = 0; i < directory.folders.size(); i++) {
@@ -326,6 +383,7 @@ int main(int argc, char* argv[]) {
         arguments.inputPath = Platform::get_directory(arguments.inputPath) + "/";
     }
 
+#ifndef NO_EXCEPTIONS
     try {
         if (!decompile_files_recursively(root)) {
             print("--------------------");
@@ -335,6 +393,13 @@ int main(int argc, char* argv[]) {
     } catch (...) {
         throw;
     }
+#else
+    if (!decompile_files_recursively(root)) {
+        print("--------------------");
+        print("Aborted!");
+        return EXIT_FAILURE;
+    }
+#endif
 
     print("--------------------");
     if (filesSkipped) {
@@ -372,6 +437,7 @@ void erase_progress_bar() {
 
 void assert(bool assertion, const std::string& message, const std::string& filePath,
             const std::string& function, const std::string& source, uint32_t line) {
+#ifndef NO_EXCEPTIONS
     if (!assertion) throw Error{
         .message = message,
         .filePath = filePath,
@@ -379,6 +445,13 @@ void assert(bool assertion, const std::string& message, const std::string& fileP
         .source = source,
         .line = std::to_string(line)
     };
+#else
+    if (!assertion) {
+        std::fprintf(stderr, "Assertion failed in %s at %s:%u\n%s\nFile: %s\n",
+                     function.c_str(), source.c_str(), line, message.c_str(), filePath.c_str());
+        std::abort();
+    }
+#endif
 }
 
 std::string byte_to_string(uint8_t byte) {

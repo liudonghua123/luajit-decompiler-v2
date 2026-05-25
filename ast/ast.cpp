@@ -3579,7 +3579,7 @@ Ast::Expression* Ast::new_primitive(const uint8_t& primitive) {
 		expression->constant->type = AST_CONSTANT_TRUE;
 		break;
 	default:
-		throw nullptr;
+		assert(false, "Unsupported primitive type: " + std::to_string(primitive), bytecode.filePath, DEBUG_INFO);
 	}
 
 	return expression;
@@ -3689,7 +3689,7 @@ Ast::Expression* Ast::new_table(const Function& function, const uint16_t& index)
 				value = &stringFields[position].value;
 				break;
 			default:
-				throw nullptr;
+				assert(false, "Unsupported table constant type", bytecode.filePath, DEBUG_INFO);
 			}
 
 			*value = new_table_constant(function.get_constant(index).table[i].value);

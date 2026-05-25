@@ -7,8 +7,13 @@
 
 #ifdef _WIN32
 #include <conio.h>
+#include <direct.h>
 #include <windows.h>
+#include <sys/stat.h>
 #else
+#include <dirent.h>
+#include <limits.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #endif
 
@@ -19,14 +24,16 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
+#ifndef BUILD_WASI
+#include <filesystem>
 namespace fs = std::filesystem;
+#endif
 
 #define DEBUG_INFO __func__, __FILE__, __LINE__
 
@@ -67,11 +74,23 @@ inline void close_file(FILE* file) {
 
 // Directory operations
 inline bool is_directory(const std::string& path) {
-    return fs::is_directory(path);
+#ifdef _WIN32
+    struct _stat st;
+    return _stat(path.c_str(), &st) == 0 && (st.st_mode & _S_IFDIR);
+#else
+    struct stat st;
+    return stat(path.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
+#endif
 }
 
 inline bool path_exists(const std::string& path) {
-    return fs::exists(path);
+#ifdef _WIN32
+    struct _stat st;
+    return _stat(path.c_str(), &st) == 0;
+#else
+    struct stat st;
+    return stat(path.c_str(), &st) == 0;
+#endif
 }
 
 // Console output
@@ -87,34 +106,76 @@ inline void flush_output() {
     std::cout.flush();
 }
 
+inline void fatal_error(const std::string& message) {
+    std::fprintf(stderr, "%s\n", message.c_str());
+    std::abort();
+}
+
 // Path manipulation
 inline std::string get_filename(const std::string& path) {
-    return fs::path(path).filename().string();
+    size_t pos = path.find_last_of("/\\");
+    return pos == std::string::npos ? path : path.substr(pos + 1);
 }
 
 inline std::string get_extension(const std::string& path) {
-    return fs::path(path).extension().string();
+    std::string filename = get_filename(path);
+    size_t pos = filename.find_last_of('.');
+    return pos == std::string::npos ? std::string() : filename.substr(pos);
 }
 
 inline std::string get_directory(const std::string& path) {
-    return fs::path(path).parent_path().string();
+    size_t pos = path.find_last_of("/\\");
+    return pos == std::string::npos ? std::string() : path.substr(0, pos);
 }
 
 inline std::string join_path(const std::string& a, const std::string& b) {
-    return (fs::path(a) / b).string();
+    if (a.empty()) return b;
+    if (b.empty()) return a;
+    char last = a.back();
+    if (last == '/' || last == '\\') return a + b;
+    return a + '/' + b;
 }
 
 inline std::string remove_extension(const std::string& path) {
-    return fs::path(path).stem().string();
+    std::string filename = get_filename(path);
+    size_t pos = filename.find_last_of('.');
+    return pos == std::string::npos ? filename : filename.substr(0, pos);
 }
 
 inline std::string get_executable_directory() {
-    return fs::current_path().string();
+#ifdef _WIN32
+    char buffer[_MAX_PATH];
+    if (_getcwd(buffer, sizeof(buffer)) != nullptr) {
+        return std::string(buffer);
+    }
+#else
+    char buffer[PATH_MAX];
+    if (getcwd(buffer, sizeof(buffer)) != nullptr) {
+        return std::string(buffer);
+    }
+#endif
+    return std::string();
 }
 
 // Create directory
 inline bool create_directory(const std::string& path) {
-    return fs::create_directories(path);
+    if (path.empty()) return false;
+    if (path_exists(path)) return is_directory(path);
+
+    std::string current;
+    for (size_t i = 0; i < path.size(); ++i) {
+        current.push_back(path[i]);
+        if (path[i] == '/' || path[i] == '\\' || i + 1 == path.size()) {
+            if (!path_exists(current)) {
+#ifdef _WIN32
+                if (_mkdir(current.c_str()) != 0 && errno != EEXIST) return false;
+#else
+                if (mkdir(current.c_str(), 0755) != 0 && errno != EEXIST) return false;
+#endif
+            }
+        }
+    }
+    return true;
 }
 
 // Input
@@ -177,6 +238,7 @@ struct FileHandle {
 };
 
 // Directory enumeration
+#ifndef BUILD_WASI
 struct DirectoryIterator {
     fs::recursive_directory_iterator iter;
     fs::recursive_directory_iterator end;
@@ -194,6 +256,7 @@ struct DirectoryIterator {
 
     std::string path() const { return iter->path().string(); }
 };
+#endif
 
 } // namespace WinAPI_Compat
 
@@ -203,10 +266,18 @@ namespace compat {
     inline void assert(bool condition, const std::string& message,
                        const std::string& filePath, const std::string& function,
                        const std::string& source, uint32_t line) {
+#ifndef NO_EXCEPTIONS
         if (!condition) {
             throw std::runtime_error("Assertion failed in " + function + " at " + source + ":" +
                                      std::to_string(line) + "\n" + message + "\nFile: " + filePath);
         }
+#else
+        if (!condition) {
+            std::fprintf(stderr, "Assertion failed in %s at %s:%u\n%s\nFile: %s\n",
+                         function.c_str(), source.c_str(), line, message.c_str(), filePath.c_str());
+            std::abort();
+        }
+#endif
     }
 }
 
