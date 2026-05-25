@@ -45,12 +45,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y clang-20 lld-20 wasi-libc libc++-20-dev-wasm32 libc++abi-20-dev-wasm32 libclang-rt-20-dev-wasm32 || true
-          if ! command -v wasmtime >/dev/null 2>&1; then
-            curl -L https://github.com/bytecodealliance/wasmtime/releases/latest/download/wasmtime-x86_64-linux.tar.xz -o /tmp/wasmtime.tar.xz
-            mkdir -p /tmp/wasmtime
-            tar -xJf /tmp/wasmtime.tar.xz -C /tmp/wasmtime
-            sudo cp /tmp/wasmtime/*/wasmtime /usr/local/bin/
-          fi
+
+      - uses: jcbhmr/setup-wasmtime@v2
+        if: matrix.target == 'wasi'
+        with:
+          version: "latest"
 
       - name: Configure CMake
         run: |
@@ -59,6 +58,7 @@ jobs:
           else
             cmake -B build -DCMAKE_BUILD_TYPE=Release
           fi
+        shell: bash
 
       - name: Build
         run: cmake --build build --config Release --parallel
@@ -69,7 +69,8 @@ jobs:
           wasmtime --version
           WORKSPACE_DIR=$(pwd)
           wasmtime --dir "$WORKSPACE_DIR::/mnt" build/bin/luajit-decompiler-v2 /mnt/tests/simple_test.luac -o /mnt
-          ls -l /mnt/simple_test.lua
+          ls -l simple_test.lua
+          cat simple_test.lua
 
       - name: Prepare binary
         run: |
