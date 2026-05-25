@@ -10,6 +10,7 @@ full support for gotos and stripped bytecode including locals and upvalues.
 - Goto statement support
 - Stripped bytecode support (locals and upvalues)
 - Cross-platform (Windows, Linux, macOS)
+- WASI / wasm32-wasi target support
 - Batch decompilation (directories)
 
 ## Building
@@ -33,7 +34,13 @@ cmake -B build -G "Unix Makefiles"
 cmake --build build --config Release
 ```
 
-The executable will be at `build/bin/Release/luajit-decompiler-v2.exe` (Windows) or `build/bin/luajit-decompiler-v2` (Unix).
+**WASI (wasm32-wasi):**
+```bash
+cmake -B build -DBUILD_WASI=ON -G "Unix Makefiles"
+cmake --build build --config Release
+```
+
+The executable will be at `build/bin/Release/luajit-decompiler-v2.exe` (Windows) or `build/bin/luajit-decompiler-v2` (Unix/WASI).
 
 ## Usage
 
@@ -50,6 +57,12 @@ luajit-decompiler-v2 ./bytecode_files/
 # Only decompile .luac files
 luajit-decompiler-v2 ./bytecode_files/ --extension .luac
 
+# Read bytecode from stdin and write decompiled Lua to stdout
+cat input.luac | luajit-decompiler-v2 -
+
+# Explicit stdout output
+cat input.luac | luajit-decompiler-v2 - --output -
+
 # Silent mode (skip files that fail to decompile)
 luajit-decompiler-v2 input.lua --silent_assertions
 
@@ -62,7 +75,7 @@ luajit-decompiler-v2 input.lua --force_overwrite
 | Option | Description |
 |--------|-------------|
 | `-h`, `--help` | Show help message |
-| `-o`, `--output PATH` | Output directory |
+| `-o`, `--output PATH` | Output directory, or `-` to write to stdout |
 | `-e`, `--extension EXT` | Only decompile files with specified extension |
 | `-s`, `--silent_assertions` | Auto-skip files that fail to decompile |
 | `-f`, `--force_overwrite` | Always overwrite existing files |

@@ -15,11 +15,15 @@ public:
     #include "instructions.h"
 
     Bytecode(const std::string& filePath);
+    Bytecode(const std::string& filePath, bool useStream);
     ~Bytecode();
 
     void operator()();
 
     const std::string filePath;
+    bool useStream = false;
+    uint64_t streamOffset = 0;
+    std::vector<uint8_t> streamBuffer;
 
     struct {
         uint8_t version = 0;

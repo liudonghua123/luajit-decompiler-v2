@@ -2,6 +2,9 @@
 
 Bytecode::Bytecode(const std::string& filePath) : filePath(filePath), file(nullptr) {}
 
+Bytecode::Bytecode(const std::string& filePath, bool useStream)
+    : filePath(filePath), file(nullptr), useStream(useStream), streamOffset(0) {}
+
 Bytecode::~Bytecode() {
     close_file();
 
@@ -59,6 +62,23 @@ void Bytecode::read_prototypes() {
 }
 
 void Bytecode::open_file() {
+    if (useStream) {
+        streamBuffer.clear();
+        constexpr size_t bufferSize = 4096;
+        std::vector<uint8_t> temp(bufferSize);
+
+        size_t bytesRead = 0;
+        while ((bytesRead = Platform::read_file(stdin, temp.data(), bufferSize)) > 0) {
+            streamBuffer.insert(streamBuffer.end(), temp.data(), temp.data() + bytesRead);
+        }
+
+        fileSize = static_cast<uint64_t>(streamBuffer.size());
+        assert(fileSize >= MIN_FILE_SIZE, "File is too small or empty", filePath, DEBUG_INFO);
+        bytesUnread = fileSize;
+        streamOffset = 0;
+        return;
+    }
+
     file = Platform::open_file(filePath.c_str(), "rb");
     assert(file != nullptr, "Unable to open file", filePath, DEBUG_INFO);
 
@@ -72,6 +92,11 @@ void Bytecode::open_file() {
 }
 
 void Bytecode::close_file() {
+    if (useStream) {
+        streamBuffer.clear();
+        streamOffset = 0;
+        return;
+    }
     if (file == nullptr) return;
     Platform::close_file(file);
     file = nullptr;
@@ -81,8 +106,15 @@ void Bytecode::read_file(uint32_t byteCount) {
     assert(bytesUnread >= byteCount, "Read would exceed end of file", filePath, DEBUG_INFO);
     fileBuffer.resize(byteCount);
 
-    size_t bytesRead = Platform::read_file(file, fileBuffer.data(), byteCount);
-    assert(bytesRead == byteCount, "Failed to read file", filePath, DEBUG_INFO);
+    if (useStream) {
+        assert(streamOffset + byteCount <= streamBuffer.size(), "Read would exceed end of stream", filePath, DEBUG_INFO);
+        std::copy_n(streamBuffer.data() + streamOffset, byteCount, fileBuffer.data());
+        streamOffset += byteCount;
+    } else {
+        size_t bytesRead = Platform::read_file(file, fileBuffer.data(), byteCount);
+        assert(bytesRead == byteCount, "Failed to read file", filePath, DEBUG_INFO);
+    }
+
     bytesUnread -= byteCount;
 }
 

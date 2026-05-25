@@ -997,20 +997,31 @@ void Lua::write_indent() {
 }
 
 void Lua::write_file() {
-	// Ensure the output directory exists
-	std::string dirPath = Platform::get_directory(filePath);
-	if (!dirPath.empty()) {
-		Platform::create_directory(dirPath);
+	// Ensure the output directory exists when writing to a file path
+	if (filePath != "-") {
+		std::string dirPath = Platform::get_directory(filePath);
+		if (!dirPath.empty()) {
+			Platform::create_directory(dirPath);
+		}
 	}
 
-	FILE* outFile = Platform::open_file(filePath, "wb");
-	if (!outFile) {
-		print("ERROR: Failed to open file for writing: " + filePath);
-		assert(false, "Unable to create file", filePath, DEBUG_INFO);
+	FILE* outFile = nullptr;
+	if (filePath == "-") {
+		outFile = stdout;
+	} else {
+		outFile = Platform::open_file(filePath, "wb");
+		if (!outFile) {
+			print("ERROR: Failed to open file for writing: " + filePath);
+			assert(false, "Unable to create file", filePath, DEBUG_INFO);
+		}
 	}
 
 	size_t written = fwrite(writeBuffer.data(), 1, writeBuffer.size(), outFile);
-	Platform::close_file(outFile);
+	if (filePath == "-") {
+		fflush(outFile);
+	} else {
+		Platform::close_file(outFile);
+	}
 
 	if (written != writeBuffer.size()) {
 		assert(false, "Failed writing to file", filePath, DEBUG_INFO);

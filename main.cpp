@@ -18,6 +18,8 @@ struct Arguments {
     bool ignoreDebugInfo = false;
     bool minimizeDiffs = false;
     bool unrestrictedAscii = false;
+    bool inputFromStdin = false;
+    bool outputToStdout = false;
     std::string inputPath;
     std::string outputPath;
     std::string extensionFilter;
@@ -108,8 +110,11 @@ static void find_files_recursively(Directory& directory) {
 }
 
 static bool decompile_files_recursively(const Directory& directory) {
-    std::string fullOutputPath = arguments.outputPath + directory.path;
-    Platform::create_directory(fullOutputPath);
+    bool writeStdout = (arguments.outputPath == "-");
+    std::string fullOutputPath = writeStdout ? arguments.outputPath : arguments.outputPath + directory.path;
+    if (!writeStdout) {
+        Platform::create_directory(fullOutputPath);
+    }
 
     for (size_t i = 0; i < directory.files.size(); i++) {
         std::string outputFile = directory.files[i];
@@ -119,14 +124,14 @@ static bool decompile_files_recursively(const Directory& directory) {
 #ifndef NO_EXCEPTIONS
         try {
             std::string inputFile = arguments.inputPath + directory.path + directory.files[i];
-            std::string outputFileFull = fullOutputPath + outputFile;
+            std::string outputFileFull = writeStdout ? arguments.outputPath : fullOutputPath + outputFile;
 
             erase_progress_bar();
             print("--------------------");
             print("Input file: " + inputFile);
             print("Reading bytecode...");
 
-            Bytecode bytecode(inputFile);
+            Bytecode bytecode(inputFile, inputFile == "-");
             bytecode();
             print("Building ast...");
             Ast ast(bytecode, arguments.ignoreDebugInfo, arguments.minimizeDiffs);
@@ -162,14 +167,14 @@ static bool decompile_files_recursively(const Directory& directory) {
 #else
         {
             std::string inputFile = arguments.inputPath + directory.path + directory.files[i];
-            std::string outputFileFull = fullOutputPath + outputFile;
+            std::string outputFileFull = writeStdout ? arguments.outputPath : fullOutputPath + outputFile;
 
             erase_progress_bar();
             print("--------------------");
             print("Input file: " + inputFile);
             print("Reading bytecode...");
 
-            Bytecode bytecode(inputFile);
+            Bytecode bytecode(inputFile, inputFile == "-");
             bytecode();
             print("Building ast...");
             Ast ast(bytecode, arguments.ignoreDebugInfo, arguments.minimizeDiffs);
@@ -198,7 +203,9 @@ static char* parse_arguments(int argc, char** argv) {
     arguments.inputPath = argv[1];
     bool isInputPathSet = true;
 
-    if (!arguments.inputPath.empty() && arguments.inputPath[0] == '-') {
+    if (arguments.inputPath == "-") {
+        arguments.inputFromStdin = true;
+    } else if (!arguments.inputPath.empty() && arguments.inputPath[0] == '-') {
         arguments.inputPath.clear();
         isInputPathSet = false;
     }
@@ -305,14 +312,15 @@ int main(int argc, char* argv[]) {
             "\n"
             "Available options:\n"
             "  -h, -?, --help\t\tShow this message\n"
-            "  -o, --output OUTPUT_PATH\tOverride default output directory\n"
+            "  -o, --output OUTPUT_PATH\tOverride default output directory (use - for stdout)\n"
             "  -e, --extension EXTENSION\tOnly decompile files with the specified extension\n"
             "  -s, --silent_assertions\tDisable assertion error pop-up window\n"
             "\t\t\t\t  and auto skip files that fail to decompile\n"
             "  -f, --force_overwrite\t\tAlways overwrite existing files\n"
             "  -i, --ignore_debug_info\tIgnore bytecode debug info\n"
             "  -m, --minimize_diffs\t\tOptimize output formatting to help minimize diffs\n"
-            "  -u, --unrestricted_ascii\tDisable default UTF-8 encoding and string restrictions"
+            "  -u, --unrestricted_ascii\tDisable default UTF-8 encoding and string restrictions\n"
+            "  INPUT_PATH can be - to read bytecode from stdin."
         );
         return EXIT_SUCCESS;
     }
@@ -321,24 +329,34 @@ int main(int argc, char* argv[]) {
         arguments.inputPath.clear();
     }
 
-    if (!arguments.inputPath.size()) {
+    if (!arguments.inputPath.size() && !arguments.inputFromStdin) {
         print("No input path specified!");
         print("Usage: luajit-decompiler-v2 INPUT_PATH [options]");
         return EXIT_FAILURE;
     }
 
-    // Normalize path separators
-    std::replace(arguments.inputPath.begin(), arguments.inputPath.end(), '\\', '/');
+    if (!arguments.inputFromStdin) {
+        // Normalize path separators
+        std::replace(arguments.inputPath.begin(), arguments.inputPath.end(), '\\', '/');
 
-    if (!Platform::path_exists(arguments.inputPath)) {
-        print("Failed to open input path: " + arguments.inputPath);
-        return EXIT_FAILURE;
+        if (!Platform::path_exists(arguments.inputPath)) {
+            print("Failed to open input path: " + arguments.inputPath);
+            return EXIT_FAILURE;
+        }
     }
 
     // Set default output path if not specified
+    if (arguments.inputFromStdin && !arguments.outputPath.size()) {
+        arguments.outputPath = "-";
+    }
+
     if (!arguments.outputPath.size()) {
         arguments.outputPath = Platform::get_executable_directory();
         arguments.outputPath = Platform::join_path(arguments.outputPath, "output");
+    }
+
+    if (arguments.outputPath == "-") {
+        arguments.outputToStdout = true;
     } else {
         std::replace(arguments.outputPath.begin(), arguments.outputPath.end(), '\\', '/');
 
@@ -366,7 +384,10 @@ int main(int argc, char* argv[]) {
 
     Directory root;
 
-    if (Platform::is_directory(arguments.inputPath)) {
+    if (arguments.inputFromStdin) {
+        root.files.push_back("-");
+        arguments.inputPath.clear();
+    } else if (Platform::is_directory(arguments.inputPath)) {
         if (arguments.inputPath.back() != '/') {
             arguments.inputPath += '/';
         }
