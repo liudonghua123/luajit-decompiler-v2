@@ -109,6 +109,8 @@ static void find_files_recursively(Directory& directory) {
 #endif
 }
 
+void print_error(const std::string& message);
+
 static bool decompile_files_recursively(const Directory& directory) {
     bool writeStdout = arguments.outputToStdout || (arguments.outputPath == "-");
     std::string fullOutputPath = writeStdout ? arguments.outputPath : arguments.outputPath + directory.path;
@@ -146,22 +148,22 @@ static bool decompile_files_recursively(const Directory& directory) {
             erase_progress_bar();
 
             if (arguments.silentAssertions) {
-                print("\nError running " + error.function +
-                      "\nSource: " + error.source + ":" + error.line +
-                      "\n\n" + error.message);
+                print_error("\nError running " + error.function +
+                            "\nSource: " + error.source + ":" + error.line +
+                            "\n\n" + error.message);
                 filesSkipped++;
                 continue;
             }
 
-            print("\n[ERROR] " + error.function);
-            print("Source: " + error.source + ":" + error.line);
-            print("File: " + error.filePath);
-            print(error.message);
-            print("File skipped.");
+            print_error("\n[ERROR] " + error.function);
+            print_error("Source: " + error.source + ":" + error.line);
+            print_error("File: " + error.filePath);
+            print_error(error.message);
+            print_error("File skipped.");
             filesSkipped++;
         } catch (const std::exception& e) {
-            print("\n[ERROR] Exception: " + std::string(e.what()));
-            print("File skipped.");
+            print_error("\n[ERROR] Exception: " + std::string(e.what()));
+            print_error("File skipped.");
             filesSkipped++;
         }
 #else
@@ -304,16 +306,14 @@ static void wait_for_exit() {
 }
 
 int main(int argc, char* argv[]) {
-    print(std::string(PROGRAM_NAME) + "\nCompiled on " + __DATE__);
-
     if (parse_arguments(argc, argv)) {
-        print("Invalid argument: " + std::string(parse_arguments(argc, argv)));
-        print("Use -h or --help to show usage and options.");
+        print_error("Invalid argument: " + std::string(parse_arguments(argc, argv)));
+        print_error("Use -h or --help to show usage and options.");
         return EXIT_FAILURE;
     }
 
     if (arguments.showHelp) {
-        print(
+        print_error(
             "Usage: luajit-decompiler-v2 INPUT_PATH [options]\n"
             "\n"
             "Available options:\n"
@@ -336,8 +336,8 @@ int main(int argc, char* argv[]) {
     }
 
     if (!arguments.inputPath.size() && !arguments.inputFromStdin) {
-        print("No input path specified!");
-        print("Usage: luajit-decompiler-v2 INPUT_PATH [options]");
+        print_error("No input path specified!");
+        print_error("Usage: luajit-decompiler-v2 INPUT_PATH [options]");
         return EXIT_FAILURE;
     }
 
@@ -346,7 +346,7 @@ int main(int argc, char* argv[]) {
         std::replace(arguments.inputPath.begin(), arguments.inputPath.end(), '\\', '/');
 
         if (!Platform::path_exists(arguments.inputPath)) {
-            print("Failed to open input path: " + arguments.inputPath);
+            print_error("Failed to open input path: " + arguments.inputPath);
             return EXIT_FAILURE;
         }
     }
@@ -370,12 +370,12 @@ int main(int argc, char* argv[]) {
         std::replace(arguments.outputPath.begin(), arguments.outputPath.end(), '\\', '/');
 
         if (!Platform::path_exists(arguments.outputPath)) {
-            print("Failed to open output path: " + arguments.outputPath);
+            print_error("Failed to open output path: " + arguments.outputPath);
             return EXIT_FAILURE;
         }
 
         if (!Platform::is_directory(arguments.outputPath)) {
-            print("Output path is not a folder!");
+            print_error("Output path is not a folder!");
             return EXIT_FAILURE;
         }
 
@@ -383,6 +383,8 @@ int main(int argc, char* argv[]) {
             arguments.outputPath += '/';
         }
     }
+
+    print(std::string(PROGRAM_NAME) + "\nCompiled on " + __DATE__);
 
     if (!arguments.extensionFilter.empty()) {
         if (arguments.extensionFilter.front() != '.') {
@@ -403,9 +405,9 @@ int main(int argc, char* argv[]) {
         find_files_recursively(root);
 
         if (!root.files.size() && !root.folders.size()) {
-            print("No files " +
-                  (arguments.extensionFilter.size() ? "with extension " + arguments.extensionFilter + " " : "") +
-                  "found in path: " + arguments.inputPath);
+            print_error("No files " +
+                        (arguments.extensionFilter.size() ? "with extension " + arguments.extensionFilter + " " : "") +
+                        "found in path: " + arguments.inputPath);
             return EXIT_FAILURE;
         }
     } else {
@@ -441,10 +443,17 @@ int main(int argc, char* argv[]) {
 }
 
 void print(const std::string& message) {
+    if (arguments.outputToStdout) return;
     std::cout << message << '\n';
 }
 
+void print_error(const std::string& message) {
+    std::cerr << message << '\n';
+}
+
 void print_progress_bar(double progress, double total) {
+    if (arguments.outputToStdout) return;
+
     static char PROGRESS_BAR[24] = "[====================]";
 
     uint8_t threshold = static_cast<uint8_t>(std::round(20.0 / total * progress));
@@ -460,6 +469,10 @@ void print_progress_bar(double progress, double total) {
 
 void erase_progress_bar() {
     if (!isProgressBarActive) return;
+    if (arguments.outputToStdout) {
+        isProgressBarActive = false;
+        return;
+    }
     std::cout << "\r                      \r";
     Platform::flush_output();
     isProgressBarActive = false;
