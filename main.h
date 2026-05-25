@@ -143,10 +143,17 @@ inline std::string remove_extension(const std::string& path) {
 }
 
 inline std::string get_executable_directory() {
+#ifdef _WIN32
+    char buffer[_MAX_PATH];
+    if (_getcwd(buffer, sizeof(buffer)) != nullptr) {
+        return std::string(buffer);
+    }
+#else
     char buffer[PATH_MAX];
     if (getcwd(buffer, sizeof(buffer)) != nullptr) {
         return std::string(buffer);
     }
+#endif
     return std::string();
 }
 
