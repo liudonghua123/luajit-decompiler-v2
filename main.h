@@ -8,6 +8,8 @@
 #ifdef _WIN32
 #include <conio.h>
 #include <direct.h>
+#include <fcntl.h>
+#include <io.h>
 #include <windows.h>
 #include <sys/stat.h>
 #else

@@ -63,6 +63,9 @@ void Bytecode::read_prototypes() {
 
 void Bytecode::open_file() {
     if (useStream) {
+#ifdef _WIN32
+        _setmode(_fileno(stdin), _O_BINARY);
+#endif
         streamBuffer.clear();
         constexpr size_t bufferSize = 4096;
         std::vector<uint8_t> temp(bufferSize);
