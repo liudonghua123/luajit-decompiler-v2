@@ -110,7 +110,7 @@ static void find_files_recursively(Directory& directory) {
 }
 
 static bool decompile_files_recursively(const Directory& directory) {
-    bool writeStdout = (arguments.outputPath == "-");
+    bool writeStdout = arguments.outputToStdout || (arguments.outputPath == "-");
     std::string fullOutputPath = writeStdout ? arguments.outputPath : arguments.outputPath + directory.path;
     if (!writeStdout) {
         Platform::create_directory(fullOutputPath);
@@ -241,6 +241,9 @@ static char* parse_arguments(int argc, char** argv) {
                     if (i <= static_cast<size_t>(argc) - 2) {
                         i++;
                         arguments.outputPath = argv[i];
+                        if (arguments.outputPath == "-") {
+                            arguments.outputToStdout = true;
+                        }
                         continue;
                     }
                 } else if (argument == "silent_assertions") {
@@ -274,6 +277,9 @@ static char* parse_arguments(int argc, char** argv) {
                     if (i > static_cast<size_t>(argc) - 2) break;
                     i++;
                     arguments.outputPath = argv[i];
+                    if (arguments.outputPath == "-") {
+                        arguments.outputToStdout = true;
+                    }
                     continue;
                 case 's':
                     arguments.silentAssertions = true;
@@ -346,18 +352,21 @@ int main(int argc, char* argv[]) {
     }
 
     // Set default output path if not specified
-    if (arguments.inputFromStdin && !arguments.outputPath.size()) {
-        arguments.outputPath = "-";
-    }
-
     if (!arguments.outputPath.size()) {
-        arguments.outputPath = Platform::get_executable_directory();
-        arguments.outputPath = Platform::join_path(arguments.outputPath, "output");
+        if (arguments.inputFromStdin ||
+            (!arguments.inputPath.empty() && !Platform::is_directory(arguments.inputPath))) {
+            arguments.outputPath = "-";
+        } else {
+            arguments.outputPath = Platform::get_executable_directory();
+            arguments.outputPath = Platform::join_path(arguments.outputPath, "output");
+        }
     }
 
     if (arguments.outputPath == "-") {
         arguments.outputToStdout = true;
-    } else {
+    }
+
+    if (!arguments.outputToStdout) {
         std::replace(arguments.outputPath.begin(), arguments.outputPath.end(), '\\', '/');
 
         if (!Platform::path_exists(arguments.outputPath)) {
